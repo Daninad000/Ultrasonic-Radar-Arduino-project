@@ -1,0 +1,108 @@
+#include <Servo.h>
+
+Servo radarServo;
+
+// Lábak definiálása (konstansok, hogy ne foglaljanak felesleges RAM-ot)
+const int trigPin = 9;
+const int echoPin = 10;
+const int servoPin = 11;
+const int greenLed = 2;
+const int yellowLed = 3;
+const int redLed = 4;
+const int buzzerPin = 5;
+
+// Globális változók a méréshez
+long duration;
+int distance;
+
+void setup() {
+  // Bemenetek és kimenetek beállítása
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  pinMode(greenLed, OUTPUT);
+  pinMode(yellowLed, OUTPUT);
+  pinMode(redLed, OUTPUT);
+  pinMode(buzzerPin, OUTPUT);
+
+  // Szervó csatlakoztatása
+  radarServo.attach(servoPin);
+  
+  // Soros kommunikáció indítása (ez nagyon jól fog jönni a dokumentációhoz!)
+  Serial.begin(9600); 
+}
+
+void loop() {
+  // Szervó forgatása 15-től 165 fokig (a végállásokat érdemes kerülni a stabilabb szimuláció miatt)
+  for(int i = 15; i <= 165; i += 2) {
+    radarServo.write(i);
+    delay(30); // Kis szünet, hogy a szervó beálljon a pozícióba
+    
+    distance = calculateDistance();
+    handleAlarms(distance);
+    logToSerial(i, distance);
+  }
+  
+  // Visszafelé forgatás
+  for(int i = 165; i >= 15; i -= 2) {
+    radarServo.write(i);
+    delay(30);
+    
+    distance = calculateDistance();
+    handleAlarms(distance);
+    logToSerial(i, distance);
+  }
+}
+
+// Függvény az ultrahangos méréshez
+int calculateDistance() {
+  // Trig pin alaphelyzetbe állítása
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  
+  // 10 mikroszekundumos impulzus küldése
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  
+  // Visszaérkező jel (Echo) idejének mérése
+  duration = pulseIn(echoPin, HIGH, 30000);
+  
+  // Távolság kiszámítása (Hangsebesség = ~340 m/s -> 0.034 cm/us)
+  return duration * 0.034 / 2; 
+}
+
+// Függvény a LED-ek és a hangjelzés vezérlésére
+void handleAlarms(int dist) {
+  // Alapértelmezett állapot: minden kikapcsolva
+  digitalWrite(greenLed, LOW);
+  digitalWrite(yellowLed, LOW);
+  digitalWrite(redLed, LOW);
+
+  if (dist > 50 || dist == 0) { 
+    // Távol van, vagy épp nincs jel (Tinkercad sajátosság)
+    digitalWrite(greenLed, HIGH);
+    noTone(buzzerPin);
+  } 
+  else if (dist <= 50 && dist > 20) { 
+    // Közepes távolság: Sárga LED és lassabb, mélyebb csipogás
+    digitalWrite(yellowLed, HIGH);
+    tone(buzzerPin, 500, 50); // 500 Hz, 50 ms időtartam
+  } 
+  else if (dist <= 20) { 
+    // Veszélyesen közel: Piros LED és gyorsabb, magasabb csipogás
+    digitalWrite(redLed, HIGH);
+    tone(buzzerPin, 1000, 100); 
+  }
+}
+
+// Függvény a konzolos naplózáshoz
+void logToSerial(int angle, int dist) {
+  Serial.print("Szog: ");
+  Serial.print(angle);
+  Serial.print(" fok | Tavolsag: ");
+  Serial.print(dist);
+  Serial.println(" cm");
+}
+
+
+

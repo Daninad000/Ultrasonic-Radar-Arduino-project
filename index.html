@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UltraSonic Radar – Arduino Project</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --green:       #00ff41;
+      --green-dim:   rgba(0,255,65,0.55);
+      --green-faint: rgba(0,255,65,0.12);
+      --red:         #ff4141;
+      --orange:      #ffaa00;
+      --bg:          #050a05;
+      --bg2:         #0a110a;
+      --panel-bg:    rgba(0,255,65,0.04);
+      --panel-border:rgba(0,255,65,0.18);
+      --font: 'Courier New', Courier, monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--green);
+      font-family: var(--font);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow-x: hidden;
+    }
+
+    header {
+      width: 100%;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--panel-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg2);
+    }
+    header h1 { font-size: 15px; letter-spacing: 3px; text-transform: uppercase; text-shadow: 0 0 10px var(--green); }
+    header span { font-size: 11px; color: var(--green-dim); letter-spacing: 2px; }
+
+    main {
+      width: 100%;
+      max-width: 1100px;
+      padding: 20px 16px 40px;
+      display: grid;
+      grid-template-columns: 1fr 260px;
+      gap: 20px;
+      align-items: start;
+    }
+
+    #radar-wrap { position: relative; aspect-ratio: 1; width: 100%; }
+    canvas { display: block; width: 100%; height: 100%; }
+    #scan-line-label {
+      position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+      font-size: 10px; letter-spacing: 2px; color: var(--green-dim);
+    }
+
+    aside { display: flex; flex-direction: column; gap: 14px; }
+
+    .panel {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 4px;
+      padding: 14px;
+    }
+    .panel-title {
+      font-size: 10px; letter-spacing: 2px; color: var(--green-dim);
+      text-transform: uppercase; margin-bottom: 10px;
+      border-bottom: 1px solid var(--panel-border); padding-bottom: 6px;
+    }
+
+    /* ── Élő adatok panel: rögzített layout hogy ne ugráljon ── */
+    .reading {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      height: 34px;           /* rögzített sormagasság */
+      font-size: 12px;
+    }
+    .reading .label { color: var(--green-dim); font-size: 11px; flex-shrink: 0; }
+    .reading-right {
+      display: flex;
+      align-items: baseline;
+      justify-content: flex-end;
+      width: 110px;           /* rögzített szélesség */
+      flex-shrink: 0;
+    }
+    .value { font-size: 18px; text-shadow: 0 0 8px var(--green); }
+    .unit  { font-size: 11px; color: var(--green-dim); margin-left: 3px; }
+
+    #status-badge {
+      display: block;
+      width: 110px;           /* ugyanolyan szélesség mint a többi sor jobb oldala */
+      padding: 3px 0;
+      border-radius: 2px;
+      font-size: 11px;
+      letter-spacing: 1px;
+      border: 1px solid;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .status-clear    { color: var(--green);      border-color: var(--green);        background: rgba(0,255,65,0.08); }
+    .status-near     { color: var(--orange);     border-color: var(--orange);       background: rgba(255,170,0,0.08); }
+    .status-danger   { color: var(--red);        border-color: var(--red);          background: rgba(255,65,65,0.08); }
+    .status-no-signal{ color: var(--green-dim);  border-color: var(--panel-border); background: transparent; }
+
+    .legend-item { display: flex; align-items: center; gap: 8px; font-size: 11px; margin-bottom: 6px; color: var(--green-dim); }
+    .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+    .btn-row { display: flex; flex-direction: column; gap: 8px; }
+    button {
+      background: transparent; border: 1px solid var(--panel-border);
+      color: var(--green); font-family: var(--font); font-size: 11px;
+      letter-spacing: 1px; padding: 7px 12px; cursor: pointer;
+      text-align: left; transition: background 0.15s, border-color 0.15s;
+      border-radius: 2px; text-transform: uppercase;
+    }
+    button:hover { background: var(--green-faint); border-color: var(--green-dim); }
+    button:active { transform: scale(0.98); }
+    button.active-btn { border-color: var(--green); background: rgba(0,255,65,0.1); }
+
+    #log { height: 130px; overflow-y: auto; font-size: 10px; line-height: 1.7; color: var(--green-dim); scrollbar-width: thin; scrollbar-color: var(--panel-border) transparent; }
+    #log::-webkit-scrollbar { width: 4px; }
+    #log::-webkit-scrollbar-thumb { background: var(--panel-border); border-radius: 2px; }
+    .log-entry { border-bottom: 1px solid rgba(0,255,65,0.05); padding: 1px 0; }
+    .log-alert { color: var(--red); }
+    .log-warn  { color: var(--orange); }
+
+    #conn-banner { width: 100%; max-width: 1100px; padding: 0 16px; margin-bottom: -8px; }
+    #conn-msg {
+      font-size: 11px; letter-spacing: 1px; padding: 6px 12px;
+      border-radius: 2px; border: 1px solid var(--panel-border);
+      color: var(--green-dim); background: var(--panel-bg);
+    }
+
+    @keyframes blink { 50% { opacity: 0; } }
+    .blink { animation: blink 1s step-end infinite; }
+
+    #scanbar { width: 100%; max-width: 1100px; padding: 0 16px; margin-top: -6px; }
+    #scanbar-inner { height: 3px; background: var(--green-faint); border-radius: 2px; overflow: hidden; }
+    #scanbar-fill { height: 100%; background: var(--green); box-shadow: 0 0 8px var(--green); transition: width 0.05s linear; }
+
+    @media (max-width: 700px) {
+      main { grid-template-columns: 1fr; }
+      aside { flex-direction: row; flex-wrap: wrap; }
+      .panel { flex: 1 1 200px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>&#9632; UltraSonic Radar</h1>
+  <span>HC-SR04 + SG90 + ARDUINO UNO &nbsp;|&nbsp; NJE PROJEKT</span>
+</header>
+
+<div id="conn-banner">
+  <div id="conn-msg"><span class="blink">●</span>&nbsp; DEMO MÓD — Valós Arduino csatlakoztatáshoz kattints a "Serial csatlakozás" gombra (Chrome/Edge szükséges)</div>
+</div>
+
+<main>
+  <div id="radar-wrap">
+    <canvas id="radar"></canvas>
+    <div id="scan-line-label">[ PÁSZTÁZÁS FOLYAMATBAN ]</div>
+  </div>
+
+  <aside>
+    <div class="panel">
+      <div class="panel-title">Élő adatok</div>
+
+      <div class="reading">
+        <span class="label">Szög</span>
+        <div class="reading-right">
+          <span class="value" id="val-angle">000</span><span class="unit">°</span>
+        </div>
+      </div>
+
+      <div class="reading">
+        <span class="label">Távolság</span>
+        <div class="reading-right">
+          <span class="value" id="val-dist">---</span><span class="unit">cm</span>
+        </div>
+      </div>
+
+      <div class="reading">
+        <span class="label">Állapot</span>
+        <span id="status-badge" class="status-no-signal">NINCS JEL</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Jelmagyarázat</div>
+      <div class="legend-item"><div class="dot" style="background:#ff4141;box-shadow:0 0 6px #ff4141"></div>&lt; 20 cm — Veszély (piros LED + gyors sípszó)</div>
+      <div class="legend-item"><div class="dot" style="background:#ffaa00;box-shadow:0 0 6px #ffaa00"></div>20–50 cm — Közel (sárga LED + lassú sípszó)</div>
+      <div class="legend-item"><div class="dot" style="background:#00ff41;box-shadow:0 0 6px #00ff41"></div>&gt; 50 cm — Szabad (zöld LED, csend)</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Vezérlés</div>
+      <div class="btn-row">
+        <button id="btn-serial" onclick="connectSerial()">&#9654; Serial csatlakozás</button>
+        <button id="btn-demo"   onclick="toggleDemo()" class="active-btn">&#9632; Demo mód: BE</button>
+        <button id="btn-pause"  onclick="togglePause()">&#9646;&#9646; Szünet</button>
+        <button id="btn-clear"  onclick="clearPoints()">&#10005; Pontok törlése</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Serial napló</div>
+      <div id="log"></div>
+    </div>
+  </aside>
+</main>
+
+<div id="scanbar">
+  <div id="scanbar-inner"><div id="scanbar-fill" style="width:0%"></div></div>
+</div>
+
+<script>
+const canvas = document.getElementById('radar');
+const ctx    = canvas.getContext('2d');
+
+let W, H, CX, CY, RADIUS;
+
+function resizeCanvas() {
+  const wrap = document.getElementById('radar-wrap');
+  W = wrap.clientWidth;
+  H = W;
+  canvas.width  = W;
+  canvas.height = H;
+  CX = W / 2;
+  CY = H * 0.88;
+  RADIUS = W * 0.455;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+let points       = [];
+let sweepAngle   = 0;
+let sweepDir     = 1;
+let paused       = false;
+let demoMode     = true;
+let serialPort   = null;
+let serialReader = null;
+let serialBuffer = '';
+
+const demoObjects = [
+  { angle: 48,  dist: 78  },
+  { angle: 93,  dist: 32  },
+  { angle: 135, dist: 145 },
+  { angle: 67,  dist: 17  },
+  { angle: 112, dist: 60  },
+];
+
+// Minden demo objektumhoz tároljuk, mikor volt utoljára "megvilágítva"
+const demoHitTime = {};  // angle -> timestamp
+
+/* 0° = bal szél, 180° = jobb szél, felfelé pásztáz */
+function degToRad(deg) {
+  return (deg + 180) * Math.PI / 180;
+}
+
+function drawBackground() {
+  ctx.fillStyle = '#050a05';
+  ctx.fillRect(0, 0, W, H);
+}
+
+function drawGrid() {
+  /* gyűrűk */
+  [50, 100, 150, 200].forEach((d, i) => {
+    const r = RADIUS * (d / 200);
+    ctx.beginPath();
+    ctx.arc(CX, CY, r, Math.PI, 2 * Math.PI);
+    ctx.strokeStyle = `rgba(0,255,65,${0.10 + i * 0.04})`;
+    ctx.lineWidth = 0.6;
+    ctx.setLineDash([4, 6]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(0,255,65,0.85)';
+    ctx.font = `bold ${Math.max(10, W * 0.018)}px Courier New`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(d + 'cm', CX + r + 4, CY - 3);
+  });
+
+  /* radiális vonalak + szögfeliratok */
+  [0, 30, 60, 90, 120, 150, 180].forEach(deg => {
+    const a = degToRad(deg);
+    ctx.beginPath();
+    ctx.moveTo(CX, CY);
+    ctx.lineTo(CX + Math.cos(a) * RADIUS, CY + Math.sin(a) * RADIUS);
+    ctx.strokeStyle = 'rgba(0,255,65,0.07)';
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+
+    const lx = CX + Math.cos(a) * (RADIUS + 18);
+    const ly = CY + Math.sin(a) * (RADIUS + 18);
+    ctx.fillStyle = 'rgba(0,255,65,0.85)';
+    ctx.font = `bold ${Math.max(9, W * 0.016)}px Courier New`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(deg + '°', lx, ly);
+  });
+  ctx.textBaseline = 'alphabetic';
+
+  /* külső ív */
+  ctx.beginPath();
+  ctx.arc(CX, CY, RADIUS, Math.PI, 2 * Math.PI);
+  ctx.strokeStyle = 'rgba(0,255,65,0.45)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  /* alap vonal */
+  ctx.beginPath();
+  ctx.moveTo(CX - RADIUS - 22, CY);
+  ctx.lineTo(CX + RADIUS + 22, CY);
+  ctx.strokeStyle = 'rgba(0,255,65,0.3)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
+function drawSweep() {
+  const sweepRad = degToRad(sweepAngle);
+
+  /* utóvilágítás — félkörhöz clippelve */
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(CX, CY);
+  ctx.arc(CX, CY, RADIUS, Math.PI, 2 * Math.PI);
+  ctx.closePath();
+  ctx.clip();
+
+  for (let i = 40; i >= 0; i--) {
+    const offset = i * 0.045;
+    /* jobbra haladva (sweepDir=1): a trail MÖGÖTTE marad, tehát negatív offset */
+    const a = sweepDir === 1 ? sweepRad - offset : sweepRad + offset;
+    const alpha = (1 - i / 40) * 0.32;
+    ctx.beginPath();
+    ctx.moveTo(CX, CY);
+    ctx.arc(CX, CY, RADIUS, a, a + 0.048);
+    ctx.closePath();
+    ctx.fillStyle = `rgba(0,255,65,${alpha})`;
+    ctx.fill();
+  }
+  ctx.restore();
+
+  /* söprési vonal */
+  ctx.beginPath();
+  ctx.moveTo(CX, CY);
+  ctx.lineTo(CX + Math.cos(sweepRad) * RADIUS, CY + Math.sin(sweepRad) * RADIUS);
+  ctx.strokeStyle = '#00ff41';
+  ctx.lineWidth = 2;
+  ctx.shadowColor = '#00ff41';
+  ctx.shadowBlur  = 10;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+const POINT_FADE_MS  = 5000;  // ennyi ms alatt halványul el a pont
+const POINT_FLASH_MS = 150;   // felvillanás hossza ms-ban
+
+function drawPoints() {
+  const now = performance.now();
+  const source = demoMode ? demoObjects : points;
+
+  source.forEach(pt => {
+    const hitT = demoMode ? (demoHitTime[pt.angle] || 0) : (pt.born || 0);
+    if (hitT === 0) return;  // még nem érte el a sweep
+
+    const age = now - hitT;
+    if (age > POINT_FADE_MS) return;
+
+    // Felvillanás az első POINT_FLASH_MS-ben, utána lassan halványul
+    let alpha;
+    if (age < POINT_FLASH_MS) {
+      alpha = 1.0;
+    } else {
+      alpha = Math.max(0, 1 - (age - POINT_FLASH_MS) / (POINT_FADE_MS - POINT_FLASH_MS));
+    }
+    if (alpha <= 0.01) return;
+
+    const r  = RADIUS * (pt.dist / 200);
+    const a  = degToRad(pt.angle);
+    const px = CX + Math.cos(a) * r;
+    const py = CY + Math.sin(a) * r;
+
+    let baseColor;
+    if      (pt.dist < 20) baseColor = '255,65,65';
+    else if (pt.dist < 50) baseColor = '255,170,0';
+    else                   baseColor = '0,255,65';
+
+    ctx.beginPath();
+    ctx.arc(px, py, 7 * alpha, 0, 2 * Math.PI);
+    ctx.strokeStyle = `rgba(${baseColor},${alpha})`;
+    ctx.lineWidth = 1;
+    ctx.shadowColor = `rgba(${baseColor},1)`;
+    ctx.shadowBlur  = 12 * alpha;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.beginPath();
+    ctx.arc(px, py, 3.5 * alpha, 0, 2 * Math.PI);
+    ctx.fillStyle = `rgba(${baseColor},${alpha})`;
+    ctx.shadowColor = `rgba(${baseColor},1)`;
+    ctx.shadowBlur  = 14 * alpha;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  });
+}
+
+function drawCenter() {
+  ctx.beginPath();
+  ctx.arc(CX, CY, 5, 0, 2 * Math.PI);
+  ctx.fillStyle = '#00ff41';
+  ctx.shadowColor = '#00ff41';
+  ctx.shadowBlur  = 14;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+}
+
+function drawScanner() {
+  drawBackground();
+  drawGrid();
+  drawSweep();
+  drawPoints();
+  drawCenter();
+}
+
+/* ── LOGIKA ── */
+
+// Demo módban: megnézi, hogy a sweep elért-e egy objektumot, és elmenti a hit időpontját
+function checkDemoHits(angle) {
+  const now = performance.now();
+  for (const obj of demoObjects) {
+    if (Math.abs(obj.angle - angle) < 3) {
+      const wasHit = demoHitTime[obj.angle] || 0;
+      // Csak akkor frissítjük, ha már lejárt a fade (ne flasheljen újra amíg látszik)
+      if (now - wasHit > POINT_FADE_MS) {
+        demoHitTime[obj.angle] = now;
+        const dist = Math.round(obj.dist + (Math.random() - 0.5) * 4);
+        updateUI(angle, dist);
+        addLog(angle, dist);
+      }
+    }
+  }
+  document.getElementById('val-angle').textContent = String(angle).padStart(3, '0');
+  document.getElementById('scanbar-fill').style.width = (angle / 180 * 100) + '%';
+}
+
+function updateUI(angle, dist) {
+  const badge = document.getElementById('status-badge');
+  document.getElementById('val-dist').textContent = dist;
+  if (dist < 20) {
+    badge.textContent = '⚠ VESZÉLY';
+    badge.className   = 'status-danger';
+  } else if (dist < 50) {
+    badge.textContent = '! KÖZEL';
+    badge.className   = 'status-near';
+  } else {
+    badge.textContent = '✓ SZABAD';
+    badge.className   = 'status-clear';
+  }
+}
+
+function processReading(angle, dist) {
+  const now = performance.now();
+  points = points.filter(p => now - p.born < POINT_FADE_MS);
+  points = points.filter(p => Math.abs(p.angle - angle) >= 4);
+  if (dist > 0 && dist <= 200) points.push({ angle, dist, born: now });
+
+  document.getElementById('val-angle').textContent = String(angle).padStart(3, '0');
+
+  const badge = document.getElementById('status-badge');
+  if (dist === 0 || dist > 200) {
+    document.getElementById('val-dist').textContent = '---';
+    badge.textContent = 'NINCS JEL';
+    badge.className   = 'status-no-signal';
+  } else {
+    updateUI(angle, dist);
+  }
+
+  document.getElementById('scanbar-fill').style.width = (sweepAngle / 180 * 100) + '%';
+  if (dist > 0 && dist <= 200) addLog(angle, dist);
+}
+
+function addLog(angle, dist) {
+  const log   = document.getElementById('log');
+  const entry = document.createElement('div');
+  entry.className   = 'log-entry' + (dist < 20 ? ' log-alert' : dist < 50 ? ' log-warn' : '');
+  entry.textContent = `[${String(angle).padStart(3,'0')}°] ${dist} cm`;
+  log.prepend(entry);
+  while (log.children.length > 60) log.removeChild(log.lastChild);
+}
+
+/* ── FŐHUROK ── */
+let lastTick = 0;
+const TICK_MS = 150;
+
+function tick(timestamp) {
+  if (!paused && timestamp - lastTick >= TICK_MS) {
+    lastTick = timestamp;
+    sweepAngle += sweepDir * 2;
+    if (sweepAngle >= 180) sweepDir = -1;
+    if (sweepAngle <= 0)   sweepDir =  1;
+    if (demoMode) {
+      checkDemoHits(sweepAngle);
+    }
+  }
+  drawScanner();
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+/* ── GOMBOK ── */
+function togglePause() {
+  paused = !paused;
+  document.getElementById('btn-pause').textContent = paused ? '▶ Folytatás' : '⏸ Szünet';
+  document.getElementById('scan-line-label').textContent =
+    paused ? '[ SZÜNETELTETVE ]' : '[ PÁSZTÁZÁS FOLYAMATBAN ]';
+}
+
+function toggleDemo() {
+  demoMode = !demoMode;
+  const btn = document.getElementById('btn-demo');
+  btn.textContent = `■ Demo mód: ${demoMode ? 'BE' : 'KI'}`;
+  btn.className   = demoMode ? 'active-btn' : '';
+  setConnMsg(demoMode
+    ? '<span class="blink">●</span>&nbsp; DEMO MÓD aktív'
+    : '<span class="blink" style="color:#ffaa00">●</span>&nbsp; Várakozás Arduino adatokra...'
+  );
+}
+
+function clearPoints() {
+  points = [];
+  document.getElementById('log').innerHTML = '';
+}
+
+function setConnMsg(html) {
+  document.getElementById('conn-msg').innerHTML = html;
+}
+
+/* ── WEB SERIAL ── */
+async function connectSerial() {
+  if (!('serial' in navigator)) {
+    setConnMsg('&#9888; Web Serial API nem támogatott — használj Chrome vagy Edge böngészőt!');
+    return;
+  }
+  try {
+    serialPort = await navigator.serial.requestPort();
+    await serialPort.open({ baudRate: 9600 });
+    setConnMsg('<span style="color:#00ff41" class="blink">●</span>&nbsp; ARDUINO CSATLAKOZVA');
+    document.getElementById('btn-serial').textContent = '■ Lecsatlakozás';
+    document.getElementById('btn-serial').onclick = disconnectSerial;
+    demoMode = false;
+    document.getElementById('btn-demo').textContent = '■ Demo mód: KI';
+    document.getElementById('btn-demo').className = '';
+    readSerial();
+  } catch (e) {
+    setConnMsg('&#9888; Csatlakozás sikertelen: ' + e.message);
+  }
+}
+
+async function disconnectSerial() {
+  if (serialReader) { await serialReader.cancel(); serialReader = null; }
+  if (serialPort)   { await serialPort.close();    serialPort   = null; }
+  setConnMsg('<span class="blink">●</span>&nbsp; Lecsatlakozva — Demo mód aktív');
+  document.getElementById('btn-serial').textContent = '▶ Serial csatlakozás';
+  document.getElementById('btn-serial').onclick = connectSerial;
+  demoMode = true;
+  document.getElementById('btn-demo').textContent = '■ Demo mód: BE';
+  document.getElementById('btn-demo').className = 'active-btn';
+}
+
+async function readSerial() {
+  const decoder = new TextDecoderStream();
+  serialPort.readable.pipeTo(decoder.writable);
+  serialReader = decoder.readable.getReader();
+  try {
+    while (true) {
+      const { value, done } = await serialReader.read();
+      if (done) break;
+      serialBuffer += value;
+      const lines = serialBuffer.split('\n');
+      serialBuffer = lines.pop();
+      lines.forEach(parseLine);
+    }
+  } catch (e) { /* kapcsolat megszakadt */ }
+}
+
+function parseLine(line) {
+  const m = line.match(/Szog:\s*(\d+)\s*fok\s*\|\s*Tavolsag:\s*(\d+)\s*cm/i);
+  if (m) {
+    sweepAngle = parseInt(m[1]);
+    processReading(sweepAngle, parseInt(m[2]));
+  }
+}
+</script>
+</body>
+</html>
