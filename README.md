@@ -94,4 +94,4 @@ A teljes projektdokumentáció (10+ oldal) tartalmazza:
 
 ---
 
-*Neumann János Egyetem – AMF | 2025/2026. tanév, 2. félév*
+*Neumann János Egyetem - GAMF | 2025/2026. tanév, 2. félév*
